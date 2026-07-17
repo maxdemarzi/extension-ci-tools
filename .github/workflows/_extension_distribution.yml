@@ -735,6 +735,31 @@ jobs:
           sudo installer -pkg ./AWSCLIV2.pkg -target /
           aws --version
 
+      # Install the OLLVM-hardened toolchain (github.com/maxdemarzi/swan-ollvm-toolchain).
+      # One universal build (X86 + AArch64 backends) serves both osx_amd64 and
+      # osx_arm64 -- matrix.osx_build_arch (already set, see OSX_BUILD_ARCH env
+      # above) picks the target via -arch, same mechanism as the stock
+      # Apple-Clang cross-build already in use here. EXT_FLAGS is a documented
+      # hook (duckdb_extension.Makefile) that Make auto-imports from the
+      # environment into every cmake invocation. Direct CC/CXX overrides break
+      # vcpkg's own toolchain detection (confirmed locally); chainloading via
+      # VCPKG_CHAINLOAD_TOOLCHAIN_FILE is the sanctioned way to combine the two,
+      # already used elsewhere in this Makefile for the WASM/emscripten build.
+      - name: Install OLLVM toolchain
+        if: ${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') }}
+        run: |
+          curl -sL "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/toolchain-v1/ollvm-clang-osx_universal.tar.zst" -o /tmp/ollvm.tar.zst
+          mkdir -p /tmp/ollvm
+          tar --zstd -xf /tmp/ollvm.tar.zst -C /tmp/ollvm
+          rm -f /tmp/ollvm.tar.zst
+          cat > /tmp/ollvm/toolchain.cmake <<EOF
+          set(CMAKE_C_COMPILER /tmp/ollvm/bin/clang)
+          set(CMAKE_CXX_COMPILER /tmp/ollvm/bin/clang++)
+          set(CMAKE_OSX_SYSROOT "$(xcrun --show-sdk-path)")
+          EOF
+          /tmp/ollvm/bin/clang --version
+          echo "EXT_FLAGS=-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/tmp/ollvm/toolchain.cmake" >> $GITHUB_ENV
+
       - name: Run configure
         shell: bash
         env:
@@ -980,6 +1005,27 @@ jobs:
           vcpkgGitURL: ${{ inputs.vcpkg_url }}
           vcpkgDirectory: ${{ env.VCPKG_WINDOWS_ROOT }}
 
+      # Install the OLLVM-hardened toolchain (github.com/maxdemarzi/swan-ollvm-toolchain)
+      # -- writes toolchain.cmake to the fixed C:/ollvm path the "Build extension"
+      # step's EXT_FLAGS below references. clang-cl.exe's exact path inside the
+      # extracted archive isn't hardcoded (never independently verified) -- found
+      # dynamically instead. See the macOS step for why this goes through
+      # VCPKG_CHAINLOAD_TOOLCHAIN_FILE rather than overriding CC/CXX directly
+      # (breaks vcpkg's own toolchain detection).
+      - name: Install OLLVM toolchain
+        if: ${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') }}
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/toolchain-v1/ollvm22-windows-Release.7z" -OutFile "$env:TEMP\ollvm.7z"
+          New-Item -ItemType Directory -Force -Path C:\ollvm | Out-Null
+          7z x "$env:TEMP\ollvm.7z" -oC:\ollvm -y | Out-Null
+          Remove-Item "$env:TEMP\ollvm.7z"
+          $clangCl = Get-ChildItem -Path C:\ollvm -Recurse -Filter clang-cl.exe | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $clangCl) { throw "clang-cl.exe not found anywhere under C:\ollvm after extraction" }
+          $clangClCmake = $clangCl -replace '\\', '/'
+          "set(CMAKE_C_COMPILER `"$clangClCmake`")`nset(CMAKE_CXX_COMPILER `"$clangClCmake`")" | Set-Content -Path C:\ollvm\toolchain.cmake -Encoding ASCII
+          & $clangCl --version
+
       - name: Inject extra extension config
         if: ${{ inputs.extra_extension_config }}
         shell: bash
@@ -1019,7 +1065,11 @@ jobs:
           ENABLE_EXTENSION_AUTOINSTALL: 1
           ENABLE_EXTENSION_AUTOLOADING: 1
           DUCKDB_PLATFORM_RTOOLS: ${{ (matrix.duckdb_arch == 'windows_amd64_rtools' || matrix.duckdb_arch == 'windows_amd64_mingw') && 1 || 0 }}
-          EXT_FLAGS: -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          # A step-level env: value replaces (not merges with) anything set via
+          # $GITHUB_ENV in an earlier step for the same key -- so the OLLVM
+          # chainload flag has to be appended here directly, not in a separate
+          # step, or it would silently be dropped for this specific step.
+          EXT_FLAGS: -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') && ' -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=C:/ollvm/toolchain.cmake' || '' }}
         shell: cmd
         run: |
           setlocal EnableDelayedExpansion

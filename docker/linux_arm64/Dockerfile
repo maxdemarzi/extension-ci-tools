@@ -139,3 +139,22 @@ RUN case "$extra_toolchains" in \
   ;; \
 esac
 ENV PATH="/usr/local/cuda/bin:${PATH}"
+
+# Install the OLLVM-hardened toolchain (github.com/maxdemarzi/swan-ollvm-toolchain,
+# github.com/maxdemarzi/ollvm) used to compile swan's obfuscated release build.
+# Both repos are public, so this is a plain download -- no auth/secret needed.
+ARG ollvm_release_tag=toolchain-v1
+RUN case "$extra_toolchains" in \
+  *\;ollvm\;*) \
+    yum install -y zstd && \
+    curl -sL \
+      "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/${ollvm_release_tag}/ollvm-clang-linux_arm64.tar.zst" \
+      -o /tmp/ollvm.tar.zst && \
+    mkdir -p /opt/ollvm && \
+    tar --zstd -xf /tmp/ollvm.tar.zst -C /opt/ollvm && \
+    rm -f /tmp/ollvm.tar.zst && \
+    printf 'set(CMAKE_C_COMPILER /opt/ollvm/bin/clang)\nset(CMAKE_CXX_COMPILER /opt/ollvm/bin/clang++)\n' \
+      > /opt/ollvm/toolchain.cmake && \
+    /opt/ollvm/bin/clang --version \
+  ;; \
+esac
