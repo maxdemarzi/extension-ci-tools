@@ -1023,7 +1023,22 @@ jobs:
           $clangCl = Get-ChildItem -Path C:\ollvm -Recurse -Filter clang-cl.exe | Select-Object -First 1 -ExpandProperty FullName
           if (-not $clangCl) { throw "clang-cl.exe not found anywhere under C:\ollvm after extraction" }
           $clangClCmake = $clangCl -replace '\\', '/'
-          "set(CMAKE_C_COMPILER `"$clangClCmake`")`nset(CMAKE_CXX_COMPILER `"$clangClCmake`")" | Set-Content -Path C:\ollvm\toolchain.cmake -Encoding ASCII
+          # clang-cl (unlike cl.exe) hard-errors on __declspec(dllexport) applied
+          # to a deleted function -- a real pattern in vendored
+          # duckdb/src/include/duckdb/storage/statistics/variant_stats.hpp
+          # (deleted rvalue-ref overloads marked DUCKDB_API). Never edit vendored
+          # duckdb source; instead predefine DUCKDB_API empty, which winapi.hpp's
+          # own `#ifndef DUCKDB_API` guard (line 11) treats as an override --
+          # semantically correct here anyway, since this is a fully static,
+          # self-contained loadable-extension build with no separate duckdb.dll
+          # to export symbols from (matches what DUCKDB_STATIC_BUILD's own
+          # branch in that same header would produce).
+          @"
+          set(CMAKE_C_COMPILER "$clangClCmake")
+          set(CMAKE_CXX_COMPILER "$clangClCmake")
+          set(CMAKE_CXX_FLAGS_INIT "-DDUCKDB_API=")
+          set(CMAKE_C_FLAGS_INIT "-DDUCKDB_API=")
+          "@ | Set-Content -Path C:\ollvm\toolchain.cmake -Encoding ASCII
           & $clangCl --version
 
       - name: Inject extra extension config
