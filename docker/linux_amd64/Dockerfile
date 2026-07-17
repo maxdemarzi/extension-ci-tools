@@ -149,7 +149,7 @@ RUN case "$extra_toolchains" in \
       "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/${ollvm_release_tag}/ollvm-clang-linux_amd64.tar.zst" \
       -o /tmp/ollvm.tar.zst && \
     mkdir -p /opt/ollvm && \
-    tar --zstd -xf /tmp/ollvm.tar.zst -C /opt/ollvm && \
+    tar -I zstd -xf /tmp/ollvm.tar.zst -C /opt/ollvm && \
     rm -f /tmp/ollvm.tar.zst && \
     printf 'set(CMAKE_C_COMPILER /opt/ollvm/bin/clang)\nset(CMAKE_CXX_COMPILER /opt/ollvm/bin/clang++)\n' \
       > /opt/ollvm/toolchain.cmake && \
