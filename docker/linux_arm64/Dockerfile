@@ -143,10 +143,15 @@ ENV PATH="/usr/local/cuda/bin:${PATH}"
 # Install the OLLVM-hardened toolchain (github.com/maxdemarzi/swan-ollvm-toolchain,
 # github.com/maxdemarzi/ollvm) used to compile swan's obfuscated release build.
 # Both repos are public, so this is a plain download -- no auth/secret needed.
-ARG ollvm_release_tag=toolchain-v1
+# python3 is required at compile time, not just here: bin/clang and
+# bin/clang++ in this artifact are thin wrapper scripts (see
+# swan-ollvm-toolchain/wrapper/) that shell out to python3 to run the
+# emit-IR -> opt -passes=obfuscation -> compile pipeline, since this
+# toolchain's clang has no single-invocation flag for that pass.
+ARG ollvm_release_tag=toolchain-v2
 RUN case "$extra_toolchains" in \
   *\;ollvm\;*) \
-    yum install -y zstd && \
+    yum install -y zstd python3 && \
     curl -sL \
       "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/${ollvm_release_tag}/ollvm-clang-linux_arm64.tar.zst" \
       -o /tmp/ollvm.tar.zst && \
