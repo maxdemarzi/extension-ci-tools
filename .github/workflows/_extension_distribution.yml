@@ -759,6 +759,16 @@ jobs:
           EOF
           /tmp/ollvm/bin/clang --version
           echo "EXT_FLAGS=-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/tmp/ollvm/toolchain.cmake" >> $GITHUB_ENV
+          # Separately consumed by swan's vcpkg_ports/highs overlay port
+          # (portfile.cmake), which is a standalone vcpkg_cmake_configure()
+          # invocation, not the outer project's own cmake bootstrap that
+          # VCPKG_CHAINLOAD_TOOLCHAIN_FILE targets above -- vcpkg builds its
+          # own ports with the triplet's default (system) compiler regardless
+          # of the outer project's toolchain, so highs needs its own,
+          # separately-wired override to end up on the same libc++ ABI as
+          # the rest of the extension. See that portfile's own comment for
+          # why this matters (an ABI-tag mismatch on osx_amd64 specifically).
+          echo "SWAN_OLLVM_TOOLCHAIN_DIR=/tmp/ollvm" >> $GITHUB_ENV
 
       - name: Run configure
         shell: bash
