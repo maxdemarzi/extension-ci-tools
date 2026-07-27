@@ -546,16 +546,19 @@ jobs:
   macos:
     name: ${{ matrix.duckdb_arch }}
     runs-on: ${{ startsWith(matrix.runner, '[') && fromJSON(matrix.runner) || matrix.runner }}
+    # Deliberately NOT gated on `linux` completing first (upstream's own
+    # fail-fast-on-Linux-before-spending-macOS/Windows-minutes cost-saving
+    # choice) -- for this fork's OLLVM-obfuscated production release
+    # pipeline, wall-clock time matters more than avoiding wasted runner
+    # minutes on a rare Linux failure, so every platform builds in parallel.
     needs:
       - generate_matrix
-      - linux
     if: |
       always() &&
       !cancelled() &&
       needs.generate_matrix.outputs.osx_matrix != '{}' &&
       needs.generate_matrix.outputs.osx_matrix != '' &&
-      needs.generate_matrix.result == 'success' &&
-      (inputs.reduced_ci_mode == 'disabled' || needs.linux.result == 'success' || needs.linux.result == 'skipped')
+      needs.generate_matrix.result == 'success'
     strategy:
       fail-fast: ${{ inputs.reduced_ci_mode != 'disabled' }}
       matrix: ${{fromJson(needs.generate_matrix.outputs.osx_matrix)}}
@@ -834,16 +837,19 @@ jobs:
   windows:
     name: ${{ matrix.duckdb_arch }}
     runs-on: ${{ startsWith(matrix.runner, '[') && fromJSON(matrix.runner) || matrix.runner }}
+    # Deliberately NOT gated on `linux` completing first (upstream's own
+    # fail-fast-on-Linux-before-spending-macOS/Windows-minutes cost-saving
+    # choice) -- for this fork's OLLVM-obfuscated production release
+    # pipeline, wall-clock time matters more than avoiding wasted runner
+    # minutes on a rare Linux failure, so every platform builds in parallel.
     needs:
       - generate_matrix
-      - linux
     if: |
       always() &&
       !cancelled() &&
       needs.generate_matrix.outputs.windows_matrix != '{}' &&
       needs.generate_matrix.outputs.windows_matrix != '' &&
-      needs.generate_matrix.result == 'success' &&
-      (inputs.reduced_ci_mode == 'disabled' || needs.linux.result == 'success' || needs.linux.result == 'skipped')
+      needs.generate_matrix.result == 'success'
     strategy:
       fail-fast: ${{ inputs.reduced_ci_mode != 'disabled' }}
       matrix: ${{fromJson(needs.generate_matrix.outputs.windows_matrix)}}
@@ -1168,16 +1174,19 @@ jobs:
   wasm:
     name: ${{ matrix.duckdb_arch }}
     runs-on: ${{ startsWith(matrix.runner, '[') && fromJSON(matrix.runner) || matrix.runner }}
+    # Deliberately NOT gated on `linux` completing first (upstream's own
+    # fail-fast-on-Linux-before-spending-macOS/Windows-minutes cost-saving
+    # choice) -- for this fork's OLLVM-obfuscated production release
+    # pipeline, wall-clock time matters more than avoiding wasted runner
+    # minutes on a rare Linux failure, so every platform builds in parallel.
     needs:
       - generate_matrix
-      - linux
     if: |
       always() &&
       !cancelled() &&
       needs.generate_matrix.outputs.wasm_matrix != '{}' &&
       needs.generate_matrix.outputs.wasm_matrix != '' &&
-      needs.generate_matrix.result == 'success' &&
-      (inputs.reduced_ci_mode == 'disabled' || needs.linux.result == 'success' || needs.linux.result == 'skipped')
+      needs.generate_matrix.result == 'success'
     strategy:
       fail-fast: ${{ inputs.reduced_ci_mode != 'disabled' }}
       matrix: ${{fromJson(needs.generate_matrix.outputs.wasm_matrix)}}
