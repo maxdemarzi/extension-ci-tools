@@ -1049,9 +1049,26 @@ jobs:
           # self-contained loadable-extension build with no separate duckdb.dll
           # to export symbols from (matches what DUCKDB_STATIC_BUILD's own
           # branch in that same header would produce).
+          #
+          # CMAKE_C_COMPILER_TARGET/CMAKE_CXX_COMPILER_TARGET: this toolchain.cmake
+          # is shared across every Windows duckdb_arch in the matrix (windows_amd64,
+          # windows_arm64), and our clang-cl -- unlike MSVC's own per-arch cl.exe
+          # binaries (VC/Tools/MSVC/.../binHostX64/arm64/cl.exe etc.) -- doesn't
+          # live under an architecture-specific path CMake can infer a target from.
+          # Without an explicit target triple, CMake's own compiler-id detection
+          # defaults to x64 regardless of which host/matrix leg is actually
+          # running, so cmake -E vs_link_exe's generated link command hardcodes
+          # /machine:x64 even when compiling for windows_arm64 -- confirmed live:
+          # "lld-link: error: ...machine type arm64 conflicts with x64" trying to
+          # link a plain CMakeTestCCompiler sanity-check .exe on a windows-11-arm
+          # runner, before any real project code is even involved. Matches the
+          # exact duckdb_arch names this workflow's own matrix already uses.
+          $targetTriple = if ("${{ matrix.duckdb_arch }}" -eq "windows_arm64") { "aarch64-pc-windows-msvc" } else { "x86_64-pc-windows-msvc" }
           @"
           set(CMAKE_C_COMPILER "$clangClCmake")
           set(CMAKE_CXX_COMPILER "$clangClCmake")
+          set(CMAKE_C_COMPILER_TARGET "$targetTriple")
+          set(CMAKE_CXX_COMPILER_TARGET "$targetTriple")
           set(CMAKE_CXX_FLAGS_INIT "-DDUCKDB_API=")
           set(CMAKE_C_FLAGS_INIT "-DDUCKDB_API=")
           "@ | Set-Content -Path C:\ollvm\toolchain.cmake -Encoding ASCII
