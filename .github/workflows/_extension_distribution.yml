@@ -390,6 +390,24 @@ jobs:
 
       - name: Create env file for docker
         run: |
+          # EXT_FLAGS's -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/ollvm/toolchain.cmake
+          # (below) is what actually wires the OLLVM toolchain the linux_amd64/
+          # linux_arm64 Dockerfiles stage at /opt/ollvm into the real CMake
+          # configure -- docker/*/Dockerfile's own ollvm case block only
+          # downloads and writes that file, it was never consumed by anything
+          # else in this repo. Confirmed directly: a linux_arm64 build with
+          # extra_toolchains containing ;ollvm; failed swan_hardening.cmake's
+          # own guard with "SWAN_ENABLE_OBFUSCATION requires the custom
+          # OLLVM-patched clang ... got 'GNU'" -- i.e. CMAKE_CXX_COMPILER was
+          # never anything but the image's default compiler, regardless of
+          # extra_toolchains, on every Linux architecture (not just arm64;
+          # amd64 was never separately confirmed working, it just hadn't been
+          # exercised by a comprehensive enough validation run to notice
+          # this). Same EXT_FLAGS mechanism the macos/windows jobs already
+          # use (see their own "Install the OLLVM-hardened toolchain" /
+          # "Build extension" steps) -- just wired here via docker_env.txt
+          # instead of $GITHUB_ENV, since this job's actual build command
+          # runs inside a container.
           cat <<-EOF > docker_env.txt
           VCPKG_BINARY_SOURCES=$VCPKG_BINARY_SOURCES
           USE_MERGED_VCPKG_MANIFEST=${{ inputs.use_merged_vcpkg_manifest }}
@@ -413,6 +431,7 @@ jobs:
           ENABLE_EXTENSION_AUTOLOADING=1
           EXTENSION_NAME=${{ inputs.extension_name }}
           EXTENSION_CANONICAL=${{ inputs.extension_canonical }}
+          EXT_FLAGS=${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') && '-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=/opt/ollvm/toolchain.cmake' || '' }}
           LINUX_CI_IN_DOCKER=1
           GITHUB_ACTIONS=true
           CI=true
