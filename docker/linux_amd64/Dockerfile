@@ -146,7 +146,7 @@ ENV PATH="/usr/local/cuda/bin:${PATH}"
 # swan-ollvm-toolchain/wrapper/) that shell out to python3 to run the
 # emit-IR -> opt -passes=obfuscation -> compile pipeline, since this
 # toolchain's clang has no single-invocation flag for that pass.
-ARG ollvm_release_tag=toolchain-v7
+ARG ollvm_release_tag=toolchain-v8
 RUN case "$extra_toolchains" in \
   *\;ollvm\;*) \
     yum install -y zstd python3 && \
