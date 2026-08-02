@@ -1075,7 +1075,7 @@ jobs:
           # see that script's own docstring for the full "why" on each point.
           $optExe = Get-ChildItem -Path C:\ollvm -Recurse -Filter opt.exe | Select-Object -First 1 -ExpandProperty FullName
           if (-not $optExe) { throw "opt.exe not found anywhere under C:\ollvm after extraction" }
-          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/maxdemarzi/swan-ollvm-toolchain/af1720a31dcab3705f7d0dcd227dbd701ad94d47/wrapper/swan_obf_windows_compiler_wrapper.py" -OutFile "C:\ollvm\swan_obf_windows_compiler_wrapper.py"
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/maxdemarzi/swan-ollvm-toolchain/d3ae69cb641d2f4d3e18ac63adcab0f41b0e7c0f/wrapper/swan_obf_windows_compiler_wrapper.py" -OutFile "C:\ollvm\swan_obf_windows_compiler_wrapper.py"
           # CMAKE_C(XX)_COMPILER_LAUNCHER points straight at python.exe (real
           # path, not a bare "python" -- same don't-guess-it, find-it
           # discipline as clang-cl/opt above) with the wrapper script as a
