@@ -1076,19 +1076,29 @@ jobs:
           $optExe = Get-ChildItem -Path C:\ollvm -Recurse -Filter opt.exe | Select-Object -First 1 -ExpandProperty FullName
           if (-not $optExe) { throw "opt.exe not found anywhere under C:\ollvm after extraction" }
           Invoke-WebRequest -Uri "https://raw.githubusercontent.com/maxdemarzi/swan-ollvm-toolchain/af1720a31dcab3705f7d0dcd227dbd701ad94d47/wrapper/swan_obf_windows_compiler_wrapper.py" -OutFile "C:\ollvm\swan_obf_windows_compiler_wrapper.py"
-          # A thin .cmd trampoline, not a bare CMAKE_C(XX)_COMPILER_LAUNCHER
-          # pointing at the .py file directly -- CMake's LAUNCHER variable
-          # invokes whatever it names as a single executable with no shebang
-          # interpretation on Windows, so it has to be something the OS can
-          # exec directly; python.exe itself is the thing CMake would need to
-          # invoke, with the script path as its own first argument, and this
-          # keeps that assembly in one place rather than encoding it into
-          # EXT_FLAGS (which is shared, single-line, and already crowded).
-          @"
-          @echo off
-          python "C:\ollvm\swan_obf_windows_compiler_wrapper.py" %*
-          exit /b %errorlevel%
-          "@ | Set-Content -Path C:\ollvm\swan_obf_win_wrapper.cmd -Encoding ASCII
+          # CMAKE_C(XX)_COMPILER_LAUNCHER points straight at python.exe (real
+          # path, not a bare "python" -- same don't-guess-it, find-it
+          # discipline as clang-cl/opt above) with the wrapper script as a
+          # second list element (CMake treats CMAKE_<LANG>_COMPILER_LAUNCHER
+          # as a semicolon-separated "program;leading-args..." list, same
+          # mechanism real ccache+distcc chains use), rather than a .cmd
+          # trampoline. Confirmed live, the hard way: a .cmd launcher works
+          # for simple args, but CreateProcess special-cases .bat/.cmd by
+          # transparently re-invoking them through cmd.exe, and cmd.exe's own
+          # (distinct, older) command-line re-parsing silently ate the escaped
+          # quotes around every -D<X>="value" flag Ninja generated for this
+          # invocation -- e.g. -DEXT_VERSION_SWAN="1f52553a" arrived at
+          # clang-cl as the bare token 1f52553a, which the preprocessor then
+          # tried to parse as a numeric literal ("invalid digit 'f' in decimal
+          # constant") instead of a string. python.exe is a real, native exe,
+          # so Ninja's own CreateProcess call reaches it directly with no
+          # cmd.exe re-parsing hop in between, and standard Win32 argv
+          # quoting (which Ninja's argument construction and Python's own
+          # runtime startup both correctly implement) applies uniformly start
+          # to end.
+          $pythonExe = (Get-Command python -ErrorAction SilentlyContinue).Source
+          if (-not $pythonExe) { throw "python not found on PATH -- needed to invoke swan_obf_windows_compiler_wrapper.py as the CMake compiler launcher" }
+          $pythonExeCmake = $pythonExe -replace '\\', '/'
           # Same two keys, same convention (a fixed, non-secret seed -- the
           # obfuscation pass runs with -obf-deterministic, so a fixed seed is
           # what makes that mean anything) every other platform's own install
@@ -1133,6 +1143,8 @@ jobs:
           set(CMAKE_CXX_COMPILER_TARGET "$targetTriple")
           set(CMAKE_CXX_FLAGS_INIT "-DDUCKDB_API=")
           set(CMAKE_C_FLAGS_INIT "-DDUCKDB_API=")
+          set(CMAKE_C_COMPILER_LAUNCHER "$pythonExeCmake;C:/ollvm/swan_obf_windows_compiler_wrapper.py")
+          set(CMAKE_CXX_COMPILER_LAUNCHER "$pythonExeCmake;C:/ollvm/swan_obf_windows_compiler_wrapper.py")
           "@ | Set-Content -Path C:\ollvm\toolchain.cmake -Encoding ASCII
           & $clangCl --version
 
@@ -1179,13 +1191,15 @@ jobs:
           # $GITHUB_ENV in an earlier step for the same key -- so the OLLVM
           # chainload flag has to be appended here directly, not in a separate
           # step, or it would silently be dropped for this specific step.
-          # The ollvm branch below points BOTH compiler launchers at
-          # swan_obf_win_wrapper.cmd instead of ccache -- CMake only accepts a
-          # single CMAKE_C(XX)_COMPILER_LAUNCHER, so obfuscation and ccache
-          # can't chain here, the same already-accepted tradeoff the Linux
-          # obfuscated build already makes (ccache is absent there too, for
-          # the same single-launcher-slot reason).
-          EXT_FLAGS: ${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') && '-DCMAKE_C_COMPILER_LAUNCHER=C:/ollvm/swan_obf_win_wrapper.cmd -DCMAKE_CXX_COMPILER_LAUNCHER=C:/ollvm/swan_obf_win_wrapper.cmd -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=C:/ollvm/toolchain.cmake' || '-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache' }}
+          # The ollvm branch below does NOT also set CMAKE_C(XX)_COMPILER_LAUNCHER
+          # here -- toolchain.cmake (written by "Install OLLVM toolchain" above)
+          # already sets both to python.exe + swan_obf_windows_compiler_wrapper.py,
+          # and mixing a -D command-line cache value with a toolchain-file set()
+          # for the same variable is exactly the kind of ambiguity not worth
+          # risking. Losing ccache for the obfuscated build (single launcher
+          # slot, can't chain both) matches the same already-accepted tradeoff
+          # the Linux obfuscated build makes.
+          EXT_FLAGS: ${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') && '-DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=C:/ollvm/toolchain.cmake' || '-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache' }}
         shell: cmd
         run: |
           setlocal EnableDelayedExpansion
