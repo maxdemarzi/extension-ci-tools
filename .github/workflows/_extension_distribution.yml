@@ -770,7 +770,7 @@ jobs:
       - name: Install OLLVM toolchain
         if: ${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') }}
         run: |
-          curl -sL "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/toolchain-v11/ollvm-clang-osx_universal.tar.zst" -o /tmp/ollvm.tar.zst
+          curl -sL "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/toolchain-v12/ollvm-clang-osx_universal.tar.zst" -o /tmp/ollvm.tar.zst
           mkdir -p /tmp/ollvm
           tar --zstd -xf /tmp/ollvm.tar.zst -C /tmp/ollvm
           rm -f /tmp/ollvm.tar.zst
@@ -1051,13 +1051,56 @@ jobs:
         if: ${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') }}
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/toolchain-v11/ollvm22-windows-Release.7z" -OutFile "$env:TEMP\ollvm.7z"
+          Invoke-WebRequest -Uri "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/toolchain-v12/ollvm22-windows-Release.7z" -OutFile "$env:TEMP\ollvm.7z"
           New-Item -ItemType Directory -Force -Path C:\ollvm | Out-Null
           7z x "$env:TEMP\ollvm.7z" -oC:\ollvm -y | Out-Null
           Remove-Item "$env:TEMP\ollvm.7z"
           $clangCl = Get-ChildItem -Path C:\ollvm -Recurse -Filter clang-cl.exe | Select-Object -First 1 -ExpandProperty FullName
           if (-not $clangCl) { throw "clang-cl.exe not found anywhere under C:\ollvm after extraction" }
           $clangClCmake = $clangCl -replace '\\', '/'
+
+          # Windows never had any obfuscation-pass wiring at all before this --
+          # CMAKE_CXX_COMPILER pointed straight at the raw, unwrapped clang-cl,
+          # and since this toolchain's obfuscation pass is only reachable via
+          # the standalone `opt` tool's own 3-step emit-IR/obfuscate/codegen
+          # dance (a single clang invocation can't trigger it -- see every
+          # other platform's own wrapper comment on this), obf: annotations
+          # silently compiled as no-ops on every Windows build ever shipped.
+          # Confirmed live: verify_obfuscation.py found 300+ leaked plaintext
+          # strings on both windows_amd64 and windows_arm64 in one real run --
+          # essentially every qualifying string, not an occasional handful.
+          # swan_obf_windows_compiler_wrapper.py (maxdemarzi/swan-ollvm-toolchain)
+          # implements the same 3-step dance every other platform's wrapper
+          # already does, adapted for clang-cl's MSVC-style command line --
+          # see that script's own docstring for the full "why" on each point.
+          $optExe = Get-ChildItem -Path C:\ollvm -Recurse -Filter opt.exe | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $optExe) { throw "opt.exe not found anywhere under C:\ollvm after extraction" }
+          Invoke-WebRequest -Uri "https://raw.githubusercontent.com/maxdemarzi/swan-ollvm-toolchain/af1720a31dcab3705f7d0dcd227dbd701ad94d47/wrapper/swan_obf_windows_compiler_wrapper.py" -OutFile "C:\ollvm\swan_obf_windows_compiler_wrapper.py"
+          # A thin .cmd trampoline, not a bare CMAKE_C(XX)_COMPILER_LAUNCHER
+          # pointing at the .py file directly -- CMake's LAUNCHER variable
+          # invokes whatever it names as a single executable with no shebang
+          # interpretation on Windows, so it has to be something the OS can
+          # exec directly; python.exe itself is the thing CMake would need to
+          # invoke, with the script path as its own first argument, and this
+          # keeps that assembly in one place rather than encoding it into
+          # EXT_FLAGS (which is shared, single-line, and already crowded).
+          @"
+          @echo off
+          python "C:\ollvm\swan_obf_windows_compiler_wrapper.py" %*
+          exit /b %errorlevel%
+          "@ | Set-Content -Path C:\ollvm\swan_obf_win_wrapper.cmd -Encoding ASCII
+          # Same two keys, same convention (a fixed, non-secret seed -- the
+          # obfuscation pass runs with -obf-deterministic, so a fixed seed is
+          # what makes that mean anything) every other platform's own install
+          # step already sets via $GITHUB_ENV -- see e.g. this same repo's
+          # macOS/Linux jobs, or swan's own ObfuscatedBuildValidation.yml wasm
+          # job. Plain OS environment inheritance, not the `env:` context, so
+          # this is unaffected by the "Build extension" step's own env: block
+          # below (which only replaces keys it re-declares itself -- it never
+          # touches SWAN_OBF_REAL_OPT/SWAN_OBF_SEED, so these pass through
+          # untouched to the wrapper's own os.environ.get() calls).
+          "SWAN_OBF_REAL_OPT=$optExe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          "SWAN_OBF_SEED=42" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
           # clang-cl (unlike cl.exe) hard-errors on __declspec(dllexport) applied
           # to a deleted function -- a real pattern in vendored
           # duckdb/src/include/duckdb/storage/statistics/variant_stats.hpp
@@ -1136,7 +1179,13 @@ jobs:
           # $GITHUB_ENV in an earlier step for the same key -- so the OLLVM
           # chainload flag has to be appended here directly, not in a separate
           # step, or it would silently be dropped for this specific step.
-          EXT_FLAGS: -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') && ' -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=C:/ollvm/toolchain.cmake' || '' }}
+          # The ollvm branch below points BOTH compiler launchers at
+          # swan_obf_win_wrapper.cmd instead of ccache -- CMake only accepts a
+          # single CMAKE_C(XX)_COMPILER_LAUNCHER, so obfuscation and ccache
+          # can't chain here, the same already-accepted tradeoff the Linux
+          # obfuscated build already makes (ccache is absent there too, for
+          # the same single-launcher-slot reason).
+          EXT_FLAGS: ${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') && '-DCMAKE_C_COMPILER_LAUNCHER=C:/ollvm/swan_obf_win_wrapper.cmd -DCMAKE_CXX_COMPILER_LAUNCHER=C:/ollvm/swan_obf_win_wrapper.cmd -DVCPKG_CHAINLOAD_TOOLCHAIN_FILE=C:/ollvm/toolchain.cmake' || '-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache' }}
         shell: cmd
         run: |
           setlocal EnableDelayedExpansion
