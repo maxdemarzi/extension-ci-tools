@@ -770,7 +770,7 @@ jobs:
       - name: Install OLLVM toolchain
         if: ${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') }}
         run: |
-          curl -sL "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/toolchain-v8/ollvm-clang-osx_universal.tar.zst" -o /tmp/ollvm.tar.zst
+          curl -sL "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/toolchain-v9/ollvm-clang-osx_universal.tar.zst" -o /tmp/ollvm.tar.zst
           mkdir -p /tmp/ollvm
           tar --zstd -xf /tmp/ollvm.tar.zst -C /tmp/ollvm
           rm -f /tmp/ollvm.tar.zst
@@ -1051,7 +1051,7 @@ jobs:
         if: ${{ contains(format(';{0};', inputs.extra_toolchains), ';ollvm;') }}
         shell: pwsh
         run: |
-          Invoke-WebRequest -Uri "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/toolchain-v8/ollvm22-windows-Release.7z" -OutFile "$env:TEMP\ollvm.7z"
+          Invoke-WebRequest -Uri "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/toolchain-v9/ollvm22-windows-Release.7z" -OutFile "$env:TEMP\ollvm.7z"
           New-Item -ItemType Directory -Force -Path C:\ollvm | Out-Null
           7z x "$env:TEMP\ollvm.7z" -oC:\ollvm -y | Out-Null
           Remove-Item "$env:TEMP\ollvm.7z"
