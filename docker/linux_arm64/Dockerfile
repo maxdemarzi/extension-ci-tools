@@ -1,3 +1,13 @@
+# Every network fetch below retries. swan's v0.0.13 release run died on
+# simultaneous GitHub/CDN 503s across four build jobs, and the CMake fetch
+# in this file was two of them -- it had no retry at all, so one 503 from
+# GitHub's release CDN destroyed a full release build.
+#
+# curl rather than wget: curl already treats HTTP 503 as transient and retries
+# it, while wget needs --retry-on-http-error (wget >= 1.20, not guaranteed in
+# this base image) to do the same. `--retry-delay 0` selects curl's own
+# exponential backoff (1s, 2s, 4s, ...) rather than meaning "no delay", and
+# --retry-max-time bounds the total, so a fetch rides out ~5 minutes of outage.
 FROM quay.io/pypa/manylinux_2_28_aarch64
 
 # Setup the basic necessities
@@ -19,13 +29,13 @@ RUN yum install -y jq
 # We need a recent CMake
 RUN mkdir /cmake_4_02 && \
     cd /cmake_4_02 && \
-    wget https://github.com/Kitware/CMake/releases/download/v4.0.2/cmake-4.0.2-linux-aarch64.sh && \
+    curl -fLsS --retry 8 --retry-delay 0 --retry-max-time 300 -O https://github.com/Kitware/CMake/releases/download/v4.0.2/cmake-4.0.2-linux-aarch64.sh && \
     chmod +x cmake-4.0.2-linux-aarch64.sh  && \
     ./cmake-4.0.2-linux-aarch64.sh --skip-license --prefix=/usr/local && \
     cmake --version
 
 # Install the AWS cli, since the packaged version is too old
-RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-aarch64-2.22.35.zip" -o "awscliv2.zip"
+RUN curl -fLsS --retry 8 --retry-delay 0 --retry-max-time 300 "https://awscli.amazonaws.com/awscli-exe-linux-aarch64-2.22.35.zip" -o "awscliv2.zip"
 RUN unzip -q awscliv2.zip
 RUN ./aws/install
 RUN aws --version
@@ -89,7 +99,7 @@ esac
 ENV PATH="/root/.cargo/bin:${PATH}"
 RUN case "$extra_toolchains" in \
   *\;rust\;*) \
-    curl https://sh.rustup.rs -sSf | bash -s -- -y; \
+    curl -fLsS --retry 8 --retry-delay 0 --retry-max-time 300 https://sh.rustup.rs | bash -s -- -y; \
   ;; \
 esac
 
@@ -97,7 +107,7 @@ esac
 ENV PATH="/usr/local/go/bin:${PATH}"
 RUN case "$extra_toolchains" in \
   *\;go\;*) \
-    wget https://go.dev/dl/go1.20.5.linux-arm64.tar.gz && \
+    curl -fLsS --retry 8 --retry-delay 0 --retry-max-time 300 -O https://go.dev/dl/go1.20.5.linux-arm64.tar.gz && \
     tar -xzvf go1.20.5.linux-arm64.tar.gz && \
     mv go /usr/local &&\
     go version \
@@ -152,7 +162,7 @@ ARG ollvm_release_tag=toolchain-v12
 RUN case "$extra_toolchains" in \
   *\;ollvm\;*) \
     yum install -y zstd python3 && \
-    curl -sL \
+    curl -fsSL --retry 8 --retry-delay 0 --retry-max-time 300 \
       "https://github.com/maxdemarzi/swan-ollvm-toolchain/releases/download/${ollvm_release_tag}/ollvm-clang-linux_arm64.tar.zst" \
       -o /tmp/ollvm.tar.zst && \
     mkdir -p /opt/ollvm && \
