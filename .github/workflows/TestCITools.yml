@@ -38,7 +38,20 @@ jobs:
       extension_name: capi_quack
       override_repository: duckdb/extension-template-c
       override_ref: main
-      duckdb_version: v1.5.1
+      # v1.5.4, not v1.5.1: v1.5.1 cannot be built on a current MSVC at all.
+      # Its vendored fmt uses `stdext::checked_array_iterator`, an MSVC
+      # extension newer Visual Studio removed, so
+      # `Extension template / windows_amd64` failed with
+      #   fmt/format.h(326): error C2653: 'stdext': is not a class or namespace
+      # on every run since at least 2026-08-02, on branches that had nothing to
+      # do with it. Confirmed by grep: the symbol is present in v1.5.1's
+      # third_party/fmt and absent in v1.5.4's, i.e. duckdb fixed it upstream.
+      #
+      # Pinning the suite to a version that can no longer compile on the
+      # runners just keeps it permanently red, and a permanently red suite stops
+      # being read -- which is exactly what happened here: a real regression in
+      # this job would have been invisible underneath it.
+      duckdb_version: v1.5.4
       override_ci_tools_repository: ${{ github.repository }}
       ci_tools_version: ${{ github.sha }}
       extra_toolchains: 'python3;unixodbc'
@@ -54,7 +67,7 @@ jobs:
       artifact_postfix: custom-runners
       override_repository: duckdb/extension-template-c
       override_ref: main
-      duckdb_version: v1.5.1
+      duckdb_version: v1.5.4
       override_ci_tools_repository: ${{ github.repository }}
       ci_tools_version: ${{ github.sha }}
       runners: '{"linux_x64":"ubuntu-latest"}'
@@ -74,7 +87,7 @@ jobs:
       extension_name: quack
       override_repository: duckdb/extension-template
       override_ref: main
-      duckdb_version: v1.5.1
+      duckdb_version: v1.5.4
       override_ci_tools_repository: ${{ github.repository }}
       ci_tools_version: ${{ github.sha }}
       extra_toolchains: 'parser_tools;fortran;omp;go;python3;downgraded_aws_cli;'
@@ -95,7 +108,7 @@ jobs:
     uses: ./.github/workflows/_extension_deploy.yml
     with:
       extension_name: quack
-      duckdb_version: v1.5.1
+      duckdb_version: v1.5.4
       override_ci_tools_repository: ${{ github.repository }}
       ci_tools_version: ${{ github.sha }}
       deploy_script: /bin/true
@@ -111,7 +124,7 @@ jobs:
       extension_name: rusty_quack
       override_repository: duckdb/extension-template-rs
       override_ref: main
-      duckdb_version: v1.5.1
+      duckdb_version: v1.5.4
       override_ci_tools_repository: ${{ github.repository }}
       ci_tools_version: ${{ github.sha }}
       extra_toolchains: 'rust;python3'
