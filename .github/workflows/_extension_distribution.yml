@@ -678,7 +678,18 @@ jobs:
           git remote add origin ${{ inputs.vcpkg_url }}
           git fetch origin ${{ inputs.vcpkg_commit }}
           git checkout ${{ inputs.vcpkg_commit }}
-          ./bootstrap-vcpkg.sh
+          # Same un-retried GitHub download as the Windows bootstrap above,
+          # just via the .sh path -- it has not failed a release yet, and it is
+          # the identical shape, so it retries too.
+          for attempt in 1 2 3; do
+            if ./bootstrap-vcpkg.sh; then break; fi
+            if [ "$attempt" = 3 ]; then
+              echo "bootstrap-vcpkg.sh failed 3 times" >&2
+              exit 1
+            fi
+            echo "bootstrap-vcpkg.sh failed (attempt $attempt), retrying..." >&2
+            sleep $((attempt * 30))
+          done
           echo "VCPKG_ROOT=${{ github.workspace }}/local_vcpkg_installation" >> $GITHUB_ENV
           echo "VCPKG_TOOLCHAIN_PATH=${{ github.workspace }}/local_vcpkg_installation/scripts/buildsystems/vcpkg.cmake" >> $GITHUB_ENV
           echo "${{ github.workspace }}/local_vcpkg_installation" >> $GITHUB_PATH
@@ -1033,7 +1044,46 @@ jobs:
           echo "VCPKG_TOOLCHAIN_PATH=$vcpkgRoot/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
         shell: pwsh
 
-      - name: Setup vcpkg
+      # vcpkg's own bootstrap downloads vcpkg.exe from GitHub releases with NO
+      # retry: bootstrap.ps1 makes one request and hard-fails. swan's v0.0.13
+      # release lost the windows_amd64 job to exactly that, twice --
+      # "Downloading .../vcpkg.exe ... WinHttpReceiveResponse got error
+      # 0x00002F78" -- during a GitHub availability wobble that also 503'd four
+      # other jobs.
+      #
+      # lukka/run-vcpkg exposes no retry input and the download happens inside
+      # the bootstrap script it shells out to, so the retry has to wrap the whole
+      # STEP. Hence the explicit attempts rather than a flag: the first two are
+      # continue-on-error, the third is not, so a genuine failure still fails the
+      # job while a transient one costs 30s or 90s.
+      - name: Setup vcpkg (attempt 1)
+        id: vcpkg_attempt_1
+        continue-on-error: true
+        uses: lukka/run-vcpkg@v11.6
+        with:
+          vcpkgGitCommitId: ${{ inputs.vcpkg_commit }}
+          vcpkgGitURL: ${{ inputs.vcpkg_url }}
+          vcpkgDirectory: ${{ env.VCPKG_WINDOWS_ROOT }}
+      - name: Wait 30s before retrying vcpkg
+        if: steps.vcpkg_attempt_1.outcome == 'failure'
+        shell: pwsh
+        run: Start-Sleep -Seconds 30
+      - name: Setup vcpkg (attempt 2)
+        id: vcpkg_attempt_2
+        if: steps.vcpkg_attempt_1.outcome == 'failure'
+        continue-on-error: true
+        uses: lukka/run-vcpkg@v11.6
+        with:
+          vcpkgGitCommitId: ${{ inputs.vcpkg_commit }}
+          vcpkgGitURL: ${{ inputs.vcpkg_url }}
+          vcpkgDirectory: ${{ env.VCPKG_WINDOWS_ROOT }}
+      - name: Wait 60s before retrying vcpkg
+        if: steps.vcpkg_attempt_1.outcome == 'failure' && steps.vcpkg_attempt_2.outcome == 'failure'
+        shell: pwsh
+        run: Start-Sleep -Seconds 60
+      - name: Setup vcpkg (final attempt)
+        id: vcpkg_attempt_3
+        if: steps.vcpkg_attempt_1.outcome == 'failure' && steps.vcpkg_attempt_2.outcome == 'failure'
         uses: lukka/run-vcpkg@v11.6
         with:
           vcpkgGitCommitId: ${{ inputs.vcpkg_commit }}
